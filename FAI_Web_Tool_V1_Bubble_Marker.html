@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FAI Web Tool V1 - PDF 泡泡標記工具</title>
+
+  <!-- PDF.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+  <!-- pdf-lib -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+
+  <style>
+    :root {
+      --bg: #eef8ff;
+      --panel: rgba(255, 255, 255, 0.92);
+      --primary: #4ea7d8;
+      --primary-dark: #267eaf;
+      --danger: #e84d5b;
+      --text: #23313d;
+      --muted: #6d7d8a;
+      --border: #cfe9f8;
+      --shadow: 0 12px 32px rgba(51, 119, 153, 0.16);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Microsoft JhengHei", "Noto Sans TC", Arial, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(169, 220, 255, 0.35), transparent 30%),
+        radial-gradient(circle at bottom right, rgba(255, 214, 232, 0.28), transparent 28%),
+        var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    header {
+      padding: 18px 24px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .title-block h1 {
+      margin: 0;
+      font-size: 24px;
+      letter-spacing: 0.5px;
+    }
+
+    .title-block p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .top-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 300px;
+      gap: 16px;
+      padding: 0 20px 20px;
+      height: calc(100vh - 92px);
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+      border-radius: 20px;
+      overflow: hidden;
+    }
+
+    .toolbar {
+      padding: 12px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.8);
+    }
+
+    button,
+    .file-label {
+      border: 0;
+      border-radius: 999px;
+      padding: 9px 14px;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 14px;
+      color: white;
+      background: var(--primary);
+      transition: 0.18s ease;
+      user-select: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 36px;
+    }
+
+    button:hover,
+    .file-label:hover {
+      background: var(--primary-dark);
+      transform: translateY(-1px);
+    }
+
+    button.secondary {
+      background: #ffffff;
+      color: var(--primary-dark);
+      border: 1px solid var(--border);
+    }
+
+    button.secondary:hover {
+      background: #e8f6ff;
+    }
+
+    button.danger {
+      background: var(--danger);
+    }
+
+    button.danger:hover {
+      background: #c93645;
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    .status {
+      color: var(--muted);
+      font-size: 13px;
+      margin-left: auto;
+    }
+
+    .viewer-shell {
+      height: calc(100% - 61px);
+      overflow: auto;
+      padding: 24px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      background:
+        linear-gradient(45deg, rgba(255,255,255,.5) 25%, transparent 25%),
+        linear-gradient(-45deg, rgba(255,255,255,.5) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, rgba(255,255,255,.5) 75%),
+        linear-gradient(-45deg, transparent 75%, rgba(255,255,255,.5) 75%);
+      background-size: 28px 28px;
+      background-position: 0 0, 0 14px, 14px -14px, -14px 0px;
+    }
+
+    #pageStage {
+      position: relative;
+      display: inline-block;
+      background: white;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.16);
+      border-radius: 2px;
+    }
+
+    #pdfCanvas {
+      display: block;
+      background: white;
+    }
+
+    #bubbleLayer {
+      position: absolute;
+      inset: 0;
+      pointer-events: auto;
+      overflow: hidden;
+    }
+
+    .bubble {
+      position: absolute;
+      width: var(--bubble-px);
+      height: var(--bubble-px);
+      border: 3px solid #e21e2f;
+      border-radius: 50%;
+      color: #000;
+      background: rgba(255,255,255,0.68);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: calc(var(--bubble-px) * 0.48);
+      line-height: 1;
+      transform: translate(-50%, -50%);
+      user-select: none;
+      cursor: grab;
+      z-index: 5;
+    }
+
+    .bubble:active {
+      cursor: grabbing;
+    }
+
+    .bubble.selected {
+      outline: 3px solid rgba(78, 167, 216, 0.55);
+      outline-offset: 3px;
+    }
+
+    .side-panel {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .side-header {
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .side-header h2 {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    .side-header p {
+      margin: 6px 0 0;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .info-box {
+      margin: 12px 16px 0;
+      padding: 12px;
+      border-radius: 16px;
+      background: #f4fbff;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .bubble-list {
+      overflow: auto;
+      padding: 12px 16px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .bubble-item {
+      border: 1px solid var(--border);
+      background: white;
+      border-radius: 14px;
+      padding: 10px;
+      display: grid;
+      grid-template-columns: 38px 1fr auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .bubble-no {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 2px solid #e21e2f;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      color: #111;
+    }
+
+    .bubble-meta {
+      font-size: 13px;
+    }
+
+    .bubble-meta strong {
+      display: block;
+      font-size: 14px;
+    }
+
+    .bubble-meta span {
+      color: var(--muted);
+    }
+
+    .mini-btn {
+      min-height: 30px;
+      padding: 6px 10px;
+      font-size: 12px;
+    }
+
+    .empty-state {
+      padding: 40px 20px;
+      text-align: center;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: var(--muted);
+      padding-left: 4px;
+    }
+
+    .page-input {
+      width: 54px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 8px 10px;
+      text-align: center;
+      font-weight: 700;
+      color: var(--text);
+      background: #fff;
+    }
+
+    .mode-active {
+      box-shadow: 0 0 0 4px rgba(78, 167, 216, 0.18);
+      background: var(--primary-dark) !important;
+      color: white !important;
+    }
+
+    @media (max-width: 980px) {
+      .layout {
+        grid-template-columns: 1fr;
+        height: auto;
+      }
+
+      .viewer-shell {
+        height: 70vh;
+      }
+
+      .side-panel {
+        max-height: 45vh;
+      }
+    }
+
+    @media print {
+      header, .toolbar, .side-panel {
+        display: none;
+      }
+      .layout {
+        display: block;
+        padding: 0;
+        height: auto;
+      }
+      .panel {
+        box-shadow: none;
+        border: 0;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <div class="title-block">
+      <h1>FAI Web Tool V1｜PDF 泡泡標記</h1>
+      <p>上傳 PDF → 點擊標記泡泡 → 多頁連續編號 → 刪除自動重編 → 輸出標記後 PDF</p>
+    </div>
+    <div class="top-actions">
+      <label class="file-label">
+        📄 上傳 PDF
+        <input id="fileInput" type="file" accept="application/pdf" />
+      </label>
+      <button id="exportBtn" disabled>⬇️ 輸出標記後 PDF</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel">
+      <div class="toolbar">
+        <button id="prevBtn" class="secondary" disabled>← 上一頁</button>
+        <span class="hint">第</span>
+        <input id="pageInput" class="page-input" type="number" min="1" value="1" disabled />
+        <span id="pageTotal" class="hint">/ 0 頁</span>
+        <button id="nextBtn" class="secondary" disabled>下一頁 →</button>
+
+        <button id="zoomOutBtn" class="secondary" disabled>－縮小</button>
+        <button id="zoomInBtn" class="secondary" disabled>＋放大</button>
+
+        <button id="addModeBtn" class="mode-active" disabled>➕ 新增泡泡</button>
+        <button id="deleteModeBtn" class="secondary" disabled>🗑 刪除模式</button>
+        <button id="clearPageBtn" class="danger" disabled>清除本頁泡泡</button>
+
+        <span id="status" class="status">請先上傳 PDF</span>
+      </div>
+
+      <div id="viewerShell" class="viewer-shell">
+        <div id="pageStage">
+          <canvas id="pdfCanvas"></canvas>
+          <div id="bubbleLayer"></div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="panel side-panel">
+      <div class="side-header">
+        <h2>泡泡清單</h2>
+        <p>編號會依照頁數與新增順序自動重排。</p>
+      </div>
+
+      <div class="info-box">
+        <strong>操作方式：</strong><br>
+        1. 上傳 PDF<br>
+        2. 在圖面上點一下新增泡泡<br>
+        3. 拖曳泡泡可調整位置<br>
+        4. 切到刪除模式後點泡泡即可刪除<br>
+        5. 最後輸出標記後 PDF
+      </div>
+
+      <div id="bubbleList" class="bubble-list">
+        <div class="empty-state">還沒有泡泡。<br>欸，先上傳 PDF，再開始標吧。</div>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const pdfjsLib = window["pdfjs-dist/build/pdf"];
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+    const { PDFDocument, rgb, StandardFonts } = PDFLib;
+
+    const fileInput = document.getElementById("fileInput");
+    const exportBtn = document.getElementById("exportBtn");
+    const prevBtn = document.getElementById("prevBtn");
+    const nextBtn = document.getElementById("nextBtn");
+    const pageInput = document.getElementById("pageInput");
+    const pageTotal = document.getElementById("pageTotal");
+    const zoomOutBtn = document.getElementById("zoomOutBtn");
+    const zoomInBtn = document.getElementById("zoomInBtn");
+    const addModeBtn = document.getElementById("addModeBtn");
+    const deleteModeBtn = document.getElementById("deleteModeBtn");
+    const clearPageBtn = document.getElementById("clearPageBtn");
+    const statusEl = document.getElementById("status");
+    const pdfCanvas = document.getElementById("pdfCanvas");
+    const bubbleLayer = document.getElementById("bubbleLayer");
+    const bubbleList = document.getElementById("bubbleList");
+
+    const ctx = pdfCanvas.getContext("2d");
+
+    let pdfDoc = null;
+    let originalPdfBytes = null;
+    let fileName = "bubble_marked.pdf";
+    let pageNum = 1;
+    let pageCount = 0;
+    let scale = 1.25;
+    let renderTask = null;
+    let mode = "add"; // add | delete
+    let bubbles = [];
+    let selectedBubbleId = null;
+
+    // Bubble visual/export size: 0.8 cm diameter.
+    const BUBBLE_DIAMETER_CM = 0.8;
+    const PDF_POINTS_PER_CM = 72 / 2.54;
+    const BUBBLE_DIAMETER_PT = BUBBLE_DIAMETER_CM * PDF_POINTS_PER_CM;
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    function enableControls(enabled) {
+      [
+        exportBtn, prevBtn, nextBtn, pageInput, zoomOutBtn, zoomInBtn,
+        addModeBtn, deleteModeBtn, clearPageBtn
+      ].forEach(el => el.disabled = !enabled);
+    }
+
+    function updateModeButtons() {
+      addModeBtn.classList.toggle("mode-active", mode === "add");
+      addModeBtn.classList.toggle("secondary", mode !== "add");
+      deleteModeBtn.classList.toggle("mode-active", mode === "delete");
+      deleteModeBtn.classList.toggle("secondary", mode !== "delete");
+    }
+
+    function getPageBubbles(currentPage = pageNum) {
+      return bubbles.filter(b => b.page === currentPage);
+    }
+
+    function sortAndRenumberBubbles() {
+      // Sort by page first, then created order.
+      bubbles.sort((a, b) => {
+        if (a.page !== b.page) return a.page - b.page;
+        return a.createdAt - b.createdAt;
+      });
+
+      bubbles.forEach((bubble, index) => {
+        bubble.no = index + 1;
+      });
+    }
+
+    async function renderPage(num) {
+      if (!pdfDoc) return;
+
+      if (renderTask) {
+        try { renderTask.cancel(); } catch (e) {}
+      }
+
+      setStatus("正在載入頁面…");
+
+      const page = await pdfDoc.getPage(num);
+      const viewport = page.getViewport({ scale });
+
+      pdfCanvas.width = viewport.width;
+      pdfCanvas.height = viewport.height;
+      pdfCanvas.style.width = `${viewport.width}px`;
+      pdfCanvas.style.height = `${viewport.height}px`;
+
+      bubbleLayer.style.width = `${viewport.width}px`;
+      bubbleLayer.style.height = `${viewport.height}px`;
+
+      const renderContext = {
+        canvasContext: ctx,
+        viewport
+      };
+
+      renderTask = page.render(renderContext);
+
+      try {
+        await renderTask.promise;
+      } catch (err) {
+        if (err && err.name !== "RenderingCancelledException") {
+          console.error(err);
+          alert("PDF 頁面載入失敗，請換一份 PDF 試試。");
+        }
+      }
+
+      pageInput.value = num;
+      prevBtn.disabled = num <= 1;
+      nextBtn.disabled = num >= pageCount;
+      pageTotal.textContent = `/ ${pageCount} 頁`;
+
+      drawBubbles();
+      setStatus(`第 ${pageNum} / ${pageCount} 頁，總泡泡數：${bubbles.length}`);
+    }
+
+    function getBubblePixelSize() {
+      // Keep visual size matching 0.8 cm when possible, scaled with PDF zoom.
+      return BUBBLE_DIAMETER_PT * scale;
+    }
+
+    function drawBubbles() {
+      bubbleLayer.innerHTML = "";
+      const width = bubbleLayer.clientWidth;
+      const height = bubbleLayer.clientHeight;
+      const bubblePx = getBubblePixelSize();
+
+      bubbleLayer.style.setProperty("--bubble-px", `${bubblePx}px`);
+
+      getPageBubbles().forEach(bubble => {
+        const el = document.createElement("div");
+        el.className = "bubble";
+        if (bubble.id === selectedBubbleId) el.classList.add("selected");
+        el.dataset.id = bubble.id;
+        el.textContent = bubble.no;
+
+        el.style.left = `${bubble.xRatio * width}px`;
+        el.style.top = `${bubble.yRatio * height}px`;
+
+        el.addEventListener("click", (event) => {
+          event.stopPropagation();
+
+          if (mode === "delete") {
+            deleteBubble(bubble.id);
+            return;
+          }
+
+          selectedBubbleId = bubble.id;
+          drawBubbles();
+        });
+
+        makeBubbleDraggable(el, bubble);
+
+        bubbleLayer.appendChild(el);
+      });
+
+      renderBubbleList();
+    }
+
+    function makeBubbleDraggable(el, bubble) {
+      let dragging = false;
+      let moved = false;
+
+      el.addEventListener("pointerdown", (event) => {
+        if (mode === "delete") return;
+
+        dragging = true;
+        moved = false;
+        selectedBubbleId = bubble.id;
+        el.setPointerCapture(event.pointerId);
+      });
+
+      el.addEventListener("pointermove", (event) => {
+        if (!dragging) return;
+
+        moved = true;
+        const rect = bubbleLayer.getBoundingClientRect();
+        let x = event.clientX - rect.left;
+        let y = event.clientY - rect.top;
+
+        x = Math.max(0, Math.min(rect.width, x));
+        y = Math.max(0, Math.min(rect.height, y));
+
+        bubble.xRatio = x / rect.width;
+        bubble.yRatio = y / rect.height;
+
+        el.style.left = `${x}px`;
+        el.style.top = `${y}px`;
+      });
+
+      el.addEventListener("pointerup", (event) => {
+        if (!dragging) return;
+        dragging = false;
+        try { el.releasePointerCapture(event.pointerId); } catch(e) {}
+        if (moved) renderBubbleList();
+      });
+    }
+
+    function addBubbleAt(event) {
+      if (!pdfDoc || mode !== "add") return;
+      if (event.target.classList.contains("bubble")) return;
+
+      const rect = bubbleLayer.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+
+      const bubble = {
+        id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()),
+        page: pageNum,
+        xRatio: x / rect.width,
+        yRatio: y / rect.height,
+        no: bubbles.length + 1,
+        createdAt: Date.now() + Math.random()
+      };
+
+      bubbles.push(bubble);
+      sortAndRenumberBubbles();
+      selectedBubbleId = bubble.id;
+      drawBubbles();
+      setStatus(`已新增泡泡 #${bubble.no}`);
+    }
+
+    function deleteBubble(id) {
+      const target = bubbles.find(b => b.id === id);
+      if (!target) return;
+
+      bubbles = bubbles.filter(b => b.id !== id);
+      if (selectedBubbleId === id) selectedBubbleId = null;
+
+      sortAndRenumberBubbles();
+      drawBubbles();
+      setStatus(`已刪除泡泡，並重新編號。總泡泡數：${bubbles.length}`);
+    }
+
+    function clearCurrentPageBubbles() {
+      const pageBubbleCount = getPageBubbles().length;
+      if (!pageBubbleCount) {
+        alert("本頁沒有泡泡可以清除。");
+        return;
+      }
+
+      const ok = confirm(`確定要清除第 ${pageNum} 頁的 ${pageBubbleCount} 個泡泡嗎？`);
+      if (!ok) return;
+
+      bubbles = bubbles.filter(b => b.page !== pageNum);
+      selectedBubbleId = null;
+      sortAndRenumberBubbles();
+      drawBubbles();
+      setStatus(`已清除第 ${pageNum} 頁泡泡。`);
+    }
+
+    function renderBubbleList() {
+      if (!bubbles.length) {
+        bubbleList.innerHTML = `<div class="empty-state">還沒有泡泡。<br>點圖面就可以新增。</div>`;
+        return;
+      }
+
+      bubbleList.innerHTML = "";
+
+      bubbles.forEach(bubble => {
+        const item = document.createElement("div");
+        item.className = "bubble-item";
+
+        const no = document.createElement("div");
+        no.className = "bubble-no";
+        no.textContent = bubble.no;
+
+        const meta = document.createElement("div");
+        meta.className = "bubble-meta";
+        meta.innerHTML = `
+          <strong>Bubble #${bubble.no}</strong>
+          <span>Page ${bubble.page}｜X ${(bubble.xRatio * 100).toFixed(1)}% / Y ${(bubble.yRatio * 100).toFixed(1)}%</span>
+        `;
+
+        const goBtn = document.createElement("button");
+        goBtn.className = "mini-btn secondary";
+        goBtn.textContent = "前往";
+        goBtn.addEventListener("click", async () => {
+          pageNum = bubble.page;
+          selectedBubbleId = bubble.id;
+          await renderPage(pageNum);
+        });
+
+        item.appendChild(no);
+        item.appendChild(meta);
+        item.appendChild(goBtn);
+
+        bubbleList.appendChild(item);
+      });
+    }
+
+    async function loadPdfFromFile(file) {
+      if (!file) return;
+
+      if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+        alert("請上傳 PDF 檔案。");
+        return;
+      }
+
+      originalPdfBytes = await file.arrayBuffer();
+      fileName = file.name.replace(/\.pdf$/i, "") + "_bubble_marked.pdf";
+
+      try {
+        pdfDoc = await pdfjsLib.getDocument({ data: originalPdfBytes.slice(0) }).promise;
+      } catch (err) {
+        console.error(err);
+        alert("PDF 讀取失敗，請確認檔案沒有損壞或加密。");
+        return;
+      }
+
+      pageCount = pdfDoc.numPages;
+      pageNum = 1;
+      bubbles = [];
+      selectedBubbleId = null;
+      scale = 1.25;
+      mode = "add";
+
+      enableControls(true);
+      updateModeButtons();
+
+      await renderPage(pageNum);
+      setStatus(`已載入 PDF：${file.name}`);
+    }
+
+    async function exportMarkedPdf() {
+      if (!originalPdfBytes || !bubbles.length) {
+        alert("還沒有泡泡可以輸出。");
+        return;
+      }
+
+      setStatus("正在產生標記後 PDF…");
+
+      try {
+        const pdf = await PDFDocument.load(originalPdfBytes.slice(0));
+        const font = await pdf.embedFont(StandardFonts.HelveticaBold);
+
+        const pages = pdf.getPages();
+
+        sortAndRenumberBubbles();
+
+        for (const bubble of bubbles) {
+          const page = pages[bubble.page - 1];
+          if (!page) continue;
+
+          const { width, height } = page.getSize();
+
+          const centerX = bubble.xRatio * width;
+          const centerY = height - (bubble.yRatio * height);
+          const radius = BUBBLE_DIAMETER_PT / 2;
+
+          // Red circular frame.
+          page.drawCircle({
+            x: centerX,
+            y: centerY,
+            size: radius,
+            borderColor: rgb(0.886, 0.118, 0.184),
+            borderWidth: 1.8,
+            color: undefined,
+            opacity: 1,
+            borderOpacity: 1
+          });
+
+          // White transparent-ish fill is not supported as true transparent fill in all PDF viewers.
+          // So we only draw the border and text to keep drawing content visible.
+
+          const text = String(bubble.no);
+          const fontSize = bubble.no < 100 ? 9.5 : 8;
+          const textWidth = font.widthOfTextAtSize(text, fontSize);
+          const textHeight = font.heightAtSize(fontSize);
+
+          page.drawText(text, {
+            x: centerX - textWidth / 2,
+            y: centerY - textHeight / 2 + 1.2,
+            size: fontSize,
+            font,
+            color: rgb(0, 0, 0)
+          });
+        }
+
+        const markedBytes = await pdf.save();
+        const blob = new Blob([markedBytes], { type: "application/pdf" });
+        const url = URL.createObjectURL(blob);
+
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+
+        URL.revokeObjectURL(url);
+        setStatus(`已輸出：${fileName}`);
+      } catch (err) {
+        console.error(err);
+        alert("輸出 PDF 失敗。若原 PDF 有加密、特殊權限或格式異常，可能無法寫入。");
+        setStatus("輸出失敗");
+      }
+    }
+
+    fileInput.addEventListener("change", async (event) => {
+      await loadPdfFromFile(event.target.files[0]);
+      fileInput.value = "";
+    });
+
+    bubbleLayer.addEventListener("click", addBubbleAt);
+
+    prevBtn.addEventListener("click", async () => {
+      if (pageNum <= 1) return;
+      pageNum--;
+      selectedBubbleId = null;
+      await renderPage(pageNum);
+    });
+
+    nextBtn.addEventListener("click", async () => {
+      if (pageNum >= pageCount) return;
+      pageNum++;
+      selectedBubbleId = null;
+      await renderPage(pageNum);
+    });
+
+    pageInput.addEventListener("change", async () => {
+      let target = Number(pageInput.value);
+      if (!Number.isInteger(target)) target = pageNum;
+      target = Math.max(1, Math.min(pageCount, target));
+      pageNum = target;
+      selectedBubbleId = null;
+      await renderPage(pageNum);
+    });
+
+    zoomOutBtn.addEventListener("click", async () => {
+      scale = Math.max(0.55, scale - 0.15);
+      await renderPage(pageNum);
+    });
+
+    zoomInBtn.addEventListener("click", async () => {
+      scale = Math.min(3.0, scale + 0.15);
+      await renderPage(pageNum);
+    });
+
+    addModeBtn.addEventListener("click", () => {
+      mode = "add";
+      updateModeButtons();
+      setStatus("新增模式：點擊圖面新增泡泡。");
+    });
+
+    deleteModeBtn.addEventListener("click", () => {
+      mode = "delete";
+      updateModeButtons();
+      setStatus("刪除模式：點擊泡泡即可刪除。");
+    });
+
+    clearPageBtn.addEventListener("click", clearCurrentPageBubbles);
+    exportBtn.addEventListener("click", exportMarkedPdf);
+
+    // Drag & drop PDF upload.
+    document.addEventListener("dragover", (event) => {
+      event.preventDefault();
+    });
+
+    document.addEventListener("drop", async (event) => {
+      event.preventDefault();
+      const file = event.dataTransfer.files && event.dataTransfer.files[0];
+      if (file) await loadPdfFromFile(file);
+    });
+
+    // Basic keyboard shortcuts.
+    document.addEventListener("keydown", async (event) => {
+      if (!pdfDoc) return;
+
+      if (event.key === "Delete" || event.key === "Backspace") {
+        if (selectedBubbleId) deleteBubble(selectedBubbleId);
+      }
+
+      if (event.key === "ArrowLeft" && pageNum > 1) {
+        pageNum--;
+        selectedBubbleId = null;
+        await renderPage(pageNum);
+      }
+
+      if (event.key === "ArrowRight" && pageNum < pageCount) {
+        pageNum++;
+        selectedBubbleId = null;
+        await renderPage(pageNum);
+      }
+    });
+  </script>
+</body>
+</html>
